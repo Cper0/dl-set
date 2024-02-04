@@ -1,5 +1,11 @@
 #include<bits/stdc++.h>
 #include"exmath.hpp"
+#include"tiny-mnist.hpp"
+
+
+exmath::Matrix W1 = exmath::Matrix(100, 784);
+exmath::Matrix W2 = exmath::Matrix(10, 100);
+
 
 void relu(exmath::Matrix& m) {
     for(int i = 0; i < m.width(); i++) {
@@ -12,55 +18,86 @@ void relu(exmath::Matrix& m) {
     }
 }
 
-double error(const exmath::Matrix&& m, double t) {
+double two_pow_error(const exmath::Matrix& m, double t) {
     double ans = 0;
     for(int i = 0; i < m.width(); i++) {
-        ans += std::pow(m.get(i, 0) - t, 2); 
+        ans += std::pow(m.get(i, 0) - (i == t) ? 1.0 : 0.0, 2); 
     }
     ans /= m.width();
     return ans;
 }
 
-exmath::Matrix numerical_gradient(const exmath::Matrix& X, const exmath::Matrix& W, double t) {
-    exmath::Matrix R = W;
+double flow(const exmath::Matrix& X, int t) {
+    auto Y1 = X * W1;
+    relu(Y1);
+
+    auto Y2 = Y1 * W2;
+    relu(Y2);
+
+    const auto e = two_pow_error(Y2, t);
+    return e;
+}
+
+exmath::Matrix numerical_gradient_unit(const exmath::Matrix& X, int t, exmath::Matrix& W) {
+    constexpr double s = 0.0001;
+
+    exmath::Matrix N(W);
+
     for(int y = 0; y < W.height(); y++) {
         for(int x = 0; x < W.width(); x++) {
-            constexpr double s = 0.0001;
+            const auto reserve = W.get(x, y);
 
-            auto F = W;
-            F.set(x, y, F.get(x, y) + s);
-            relu(F);
-            const double f = error(X * F, t);
+            W.set(x, y, reserve + s);
+            const auto f = flow(X, t);
+            W.set(x, y, reserve - s);
+            const auto g = flow(X, t);
+            
+            const auto d = (f - g) / 2 / s;
+            N.set(x, y, d);
 
-            auto B = W;
-            B.set(x, y, B.get(x, y) - s);
-            relu(B);
-            const double b = error(X * B, t);
-
-            R.set(x, y, (f - b) / 2.0 / s);
+            W.set(x, y, reserve);
         }
     }
-    return R;
+
+    return N;
+}
+
+void update(const exmath::Matrix& X, int t, double lr) {
+    auto D1 = numerical_gradient_unit(X, t, W1);
+    auto D2 = numerical_gradient_unit(X, t, W2);
+
+    D1.scalar(lr);
+    D2.scalar(lr);
+
+    W1 = W1 - D1;
+    W2 = W2 - D2;
 }
 
 int main() {
-    exmath::Matrix X = exmath::Matrix({1,2,3});
-    exmath::Matrix W = exmath::Matrix(
-        {
-            {1,2},
-            {3,4},
-            {5,6}
+    mnist::MNISTDatabase db = mnist::MNISTDatabase();
+
+    for(int i = 0; i < 100; i++) {
+        std::vector<double> a;
+        int b;
+        
+        if(db.get_data(i, a, b)) {
+            std::cout << "Error has occured while getting data from MNIST." << std::endl;
         }
-    );
 
-    constexpr double t = 2;
-    constexpr double lr = 0.7;
+        const exmath::Matrix X = exmath::Matrix(a);
+        const int t = b;
+        constexpr double lr = 0.1;
 
-    auto a = X * W;
-    relu(a);
+        const double accuracy = flow(X, t);
+        update(X, t, lr);
 
-    std::cout << error(a, t) << std::endl;
-
+        std::cout << "accuracy[" << i << "]=" << accuracy << std::endl;
+        
+        int o = 1;
+        std::cout << "continue to enter '0':";
+        std::cin >> o;
+        if(o != 0) break;
+    }
 
     return 0;
 }
