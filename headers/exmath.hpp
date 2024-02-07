@@ -12,13 +12,15 @@ namespace exmath {
     public:
         explicit Matrix() = default;
         explicit Matrix(int w, int h) : data(h, std::vector<cell>(w)) {
+            constexpr double rstd = 0.01;
+
             std::random_device rd;
             std::default_random_engine engine(rd());
             std::uniform_real_distribution<double> u(0.0, 1.0);
 
             for(int y = 0; y < h; y++) {
                 for(int x = 0; x < w; x++) {
-                    data[y][x] = u(engine);
+                    data[y][x] = u(engine) * rstd;
                 }
             }
         };
@@ -88,5 +90,7 @@ namespace exmath {
 
         cell get(int x, int y) const { return data[y][x]; };
         void set(int x, int y, cell v) { data[y][x] = v; };
+
+        const std::vector<std::vector<cell>>& D() const noexcept { return data; };
     };
 }
