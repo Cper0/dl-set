@@ -1,2 +1,2 @@
 build: sources/*.cpp
-	g++ -Iheaders $^
+	g++ -Iheaders $^ -larmadillo

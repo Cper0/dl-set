@@ -11,6 +11,9 @@ namespace mnist {
         std::vector<uint8_t> learn;
         std::vector<uint8_t> answer;
 
+        int img_count;
+        int label_count;
+
         int byte_swap(int v) {
             int n = 0;
             n |= (v & 0x000000FF) << (8 * 3);
@@ -33,6 +36,8 @@ namespace mnist {
             const int width = byte_swap(w);
             const int height = byte_swap(h);
 
+            img_count = count;
+
             const int img_size = width * height;
 
             data = std::vector<uint8_t>(1LL * img_size * count);
@@ -52,6 +57,8 @@ namespace mnist {
             s.read(reinterpret_cast<char*>(&c), sizeof(c));
 
             const int count = byte_swap(c);
+
+            label_count = count;
 
             data = std::vector<uint8_t>(count);
             for(int i = 0; i < count; i++) {
@@ -82,5 +89,7 @@ namespace mnist {
             label = answer[idx];
             return false;
         }
+
+        int get_train_size() const noexcept { return std::min(img_count, label_count); };
     };
 }

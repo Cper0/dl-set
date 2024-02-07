@@ -1,128 +1,89 @@
 #include<bits/stdc++.h>
-#include<glm/exponential.hpp>
+#include<armadillo>
 #include"exmath.hpp"
 #include"tiny-mnist.hpp"
 
+constexpr double rand_std = 0.01;
 
-exmath::Matrix W1 = exmath::Matrix(100, 784);
-exmath::Matrix B1 = exmath::Matrix(100, 1);
+constexpr int batch_size = 100;
 
-exmath::Matrix W2 = exmath::Matrix(10, 100);
-exmath::Matrix B2 = exmath::Matrix(10, 1);
+constexpr double lr = 10;
 
-void dump(const exmath::Matrix& m) {
-    std::stringstream ss;
-    ss << "{\n";
-    for(int y = 0; y < m.height(); y++) {
-        ss << " {";
-        for(int x = 0; x < m.width(); x++) {
-            ss << m.get(x, y);
-            if(x + 1 < m.width()) {
-                ss << ",";
-            }
-        }
-        
-        ss << "}";
-        if(y + 1 < m.height()) {
-            ss << ",\n";
-        }
-    }
-    ss << "\n}";
-    std::cout << ss.str() << std::endl;
+arma::mat W1 = arma::mat(100, 784, arma::fill::randu) * rand_std;
+arma::vec B1 = arma::vec(100, arma::fill::randu) * rand_std;
+
+arma::mat W2 = arma::mat(10, 100, arma::fill::randu) * rand_std;
+arma::vec B2 = arma::vec(10, arma::fill::randu) * rand_std;
+
+arma::vec gen_one_hot(int t, int s) {
+    auto V = arma::vec(s, arma::fill::zeros);
+    V(t) = 1.0;
+    return V;
 }
 
-double sig(double x) {
-    return 1.0 / (1.0 + std::exp(-x));
+
+arma::vec sigmoid(const arma::vec& M) {
+    return 1.0 + (1.0 + arma::trunc_exp(-M));
 }
 
-void sigmoid(exmath::Matrix &m) {
-    for(int i = 0; i < m.width(); i++) {
-        m.set(
-            i,
-            0,
-            sig(m.get(i, 0))
-        );
-    }
+arma::vec softmax(const arma::vec& M) {
+    const auto Y = sigmoid(M);
+    const double s = arma::sum(Y);
+
+    return Y / s;
 }
 
-void softmax(exmath::Matrix& M) {
-    double sig_sum = 0;
-    for(int i = 0; i < M.width(); i++) {
-        const double d = M.get(i, 0);
-
-        M.set(i, 0, sig(d));
-        sig_sum += sig(d);
-    }
-
-    for(int i = 0; i < M.width(); i++) {
-        M.set(i, 0, M.get(i, 0) / sig_sum);
-    }
+double cross_entropy_error(const arma::vec& X, int t) {
+    return -arma::trunc_log(X(t));
 }
 
-double cross_entropy_error(const exmath::Matrix& m, int t) {
-    return -std::log(m.get(t, 0));
-}
+std::tuple<arma::mat,arma::mat,arma::mat,arma::mat> gradient(const arma::vec& X, const arma::vec& T) {
+    const arma::mat Z1 = W1 * X + B1;
+    const arma::mat Y1 = sigmoid(Z1);
 
-exmath::Matrix work(const exmath::Matrix& X) {
-    auto Y1 = X * W1 + B1;
-    sigmoid(Y1);
+    const arma::mat Z2 = W2 * Y1 + B2;
+    const arma::mat Y2 = softmax(Z2);
 
-    auto Y2 = Y1 * W2 + B2;
-    softmax(Y2);
-
-    return Y2;
-}
-
-double flow(const exmath::Matrix& X, int t) {
-    const auto e = cross_entropy_error(work(X), t);
-    return e;
-}
-
-exmath::Matrix numerical_gradient_unit(const exmath::Matrix& X, int t, exmath::Matrix& W) {
-    constexpr double s = 0.0001;
-
-    exmath::Matrix N(W);
+    //逆伝播法による勾配計算
+    const arma::mat dZ2 = (Y2 - T) / batch_size;
+    const arma::mat dB2 = dZ2;
+    //const arma::mat dW2 = Y1.t() * dB2;
+    const arma::mat dW2 = dB2 * Y1.t();
+    const arma::mat dY1 = W2.t() * dB2;
     
-    for(int y = 0; y < W.height(); y++) {
-        for(int x = 0; x < W.width(); x++) {
-            const auto reserve = W.get(x, y);
+    /*
+    100*1 10*1
+    10*100
+    
+    */
 
-            {
-                W.set(x, y, reserve + s);
-                const auto f = flow(X, t);
-                W.set(x, y, reserve - s);
-                const auto g = flow(X, t);
-                
-                const auto d = (f - g) / 2.0 / s;
-                N.set(x, y, d);
-            }
+    const arma::mat dZ1 = arma::dot(Y1,1.0 - Y1) * dY1;
+    const arma::mat dB1 = dZ1;
+    const arma::mat dW1 = dB1 * X.t();
 
-            W.set(x, y, reserve);
-        }
-    }
-
-    return N;
+    return std::tie(dW1, dB1, dW2, dB2);
 }
 
+void update(const arma::vec& X, const arma::vec& T) {
+    const auto [dW1, dB1, dW2, dB2] = gradient(X, T);
 
+    W1 -= dW1 * lr;
+    B1 -= dB1 * lr;
 
-void update(const exmath::Matrix& X, int t, double lr) {
-    auto D1 = numerical_gradient_unit(X, t, W1);
-    auto D2 = numerical_gradient_unit(X, t, W2);
-    auto D3 = numerical_gradient_unit(X, t, B1);
-    auto D4 = numerical_gradient_unit(X, t, B2);
-
-    D1.scalar(lr);
-    D2.scalar(lr);
-    D3.scalar(lr);
-    D4.scalar(lr);
-
-    W1 = W1 - D1;
-    W2 = W2 - D2;
-    B1 = B1 - D3;
-    B2 = B2 - D4;
+    W2 -= dW2 * lr;
+    B2 -= dB2 * lr;
 }
 
+double predict(const arma::vec& X, int t) {
+    const auto Z1 = W1 * X + B1;
+    const auto Y1 = sigmoid(Z1);
+
+
+    const auto Z2 = W2 * Y1 + B2;
+    const auto Y2 = softmax(Z2);
+
+    return cross_entropy_error(Y2, t);
+}
 
 int main() {
     mnist::MNISTDatabase db = mnist::MNISTDatabase();
@@ -130,33 +91,27 @@ int main() {
     double accuracy = 0;
     int right = 0;
 
-    for(int i = 0; i < 100; i++) {
-        std::vector<double> a;
-        int b;
-        
-        if(db.get_data(i, a, b)) {
-            std::cout << "Error has occured while getting data from MNIST." << std::endl;
+    const int max_epochs = db.get_train_size() / batch_size;
+
+    for(int j = 0; j < max_epochs; j++) {
+        for(int i = 0; i < batch_size; i++) {
+            std::vector<double> a;
+            int t;
+            
+            if(db.get_data(i, a, t)) {
+                std::cout << "Error has occured while getting data from MNIST." << std::endl;
+            }
+            
+            const arma::vec X(a);
+            const arma::vec T = gen_one_hot(t, 10);
+
+            update(X, T);
+
+            const auto Y = predict(X, t);
+            const int tries = j * batch_size + i + 1;
+            std::cout << "[" << tries << "] error=" << Y << std::endl;
         }
-        
-        const exmath::Matrix X = exmath::Matrix(a);
-        const int t = b;
-        constexpr double lr = 10.0;
-
-        const exmath::Matrix Z = X;
-
-        update(X, t, lr);
-
-        const auto R = work(X);
-        dump(R);
-
-        auto it = std::max_element(R.D()[0].begin(), R.D()[0].end());
-        if(std::distance(R.D()[0].begin(), it) == t) {
-            right++;
-        }
-
-        accuracy = 1.0 * right / (i + 1);
-        std::cout << "accuracy=" << accuracy << std::endl;
-    }
+    } 
 
     return 0;
 }
