@@ -23,18 +23,18 @@ arma::vec gen_one_hot(int t, int s) {
 
 
 arma::vec sigmoid(const arma::vec& M) {
-    return 1.0 + (1.0 + arma::trunc_exp(-M));
+    return 1.0 / (1.0 + arma::exp(-M));
 }
 
 arma::vec softmax(const arma::vec& M) {
     const auto Y = sigmoid(M);
     const double s = arma::sum(Y);
 
-    return Y / s;
+    return Y / (s + 0.0001);
 }
 
 double cross_entropy_error(const arma::vec& X, int t) {
-    return -arma::trunc_log(X(t));
+    return -std::log(X(t));
 }
 
 std::tuple<arma::mat,arma::mat,arma::mat,arma::mat> gradient(const arma::vec& X, const arma::vec& T) {
@@ -74,7 +74,7 @@ void update(const arma::vec& X, const arma::vec& T) {
     B2 -= dB2 * lr;
 }
 
-double predict(const arma::vec& X, int t) {
+arma::vec predict(const arma::vec& X, int t) {
     const auto Z1 = W1 * X + B1;
     const auto Y1 = sigmoid(Z1);
 
@@ -82,7 +82,7 @@ double predict(const arma::vec& X, int t) {
     const auto Z2 = W2 * Y1 + B2;
     const auto Y2 = softmax(Z2);
 
-    return cross_entropy_error(Y2, t);
+    return Y2;
 }
 
 int main() {
@@ -108,8 +108,14 @@ int main() {
             update(X, T);
 
             const auto Y = predict(X, t);
+			const double ce_error = cross_entropy_error(Y, t);
             const int tries = j * batch_size + i + 1;
-            std::cout << "[" << tries << "] error=" << Y << std::endl;
+			
+			if(Y.index_max() == t) {
+				right++;
+			}
+			
+            std::cout << "[" << tries << "] ce_error=" << ce_error << " correct=" << std::round(100.0 * right / tries) << std::endl;
         }
     } 
 
